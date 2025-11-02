@@ -1644,19 +1644,51 @@ class LLVMLiteIRVisitor(BuilderVisitor):
         needed_i32 = self._llvm.ir_builder.call(
             snprintf, [null_ptr, zero_size, fmt_ptr, *args]
         )
+
+        # Guard against negative return from snprintf (encoding error)
+        # Create basic blocks for error handling
+        fn = self._llvm.ir_builder.function
+        check_bb = fn.append_basic_block("snprintf_check")
+        error_bb = fn.append_basic_block("snprintf_error")
+        success_bb = fn.append_basic_block("snprintf_success")
+
+        # Check if snprintf returned a negative value
+        is_negative = self._llvm.ir_builder.icmp_signed(
+            "<", needed_i32, ir.Constant(self._llvm.INT32_TYPE, 0)
+        )
+        self._llvm.ir_builder.cbranch(is_negative, error_bb, success_bb)
+
+        # Handle error case: return empty string
+        self._llvm.ir_builder.position_at_start(error_bb)
+        empty_size = ir.Constant(self._llvm.SIZE_T_TYPE, 1)
+        empty_mem = self._llvm.ir_builder.call(malloc, [empty_size])
+        zero_byte = ir.Constant(self._llvm.INT8_TYPE, 0)
+        self._llvm.ir_builder.store(zero_byte, empty_mem)
+        self._llvm.ir_builder.branch(check_bb)
+
+        # Handle success case: allocate buffer and format string
+        self._llvm.ir_builder.position_at_start(success_bb)
         need_plus_1 = self._llvm.ir_builder.add(
             needed_i32, ir.Constant(self._llvm.INT32_TYPE, 1)
         )
         need_szt = self._llvm.ir_builder.zext(
             need_plus_1, self._llvm.SIZE_T_TYPE
         )
-
-        # allocate and print
         mem = self._llvm.ir_builder.call(malloc, [need_szt])
         _ = self._llvm.ir_builder.call(
             snprintf, [mem, need_szt, fmt_ptr, *args]
         )
-        return mem
+        self._llvm.ir_builder.branch(check_bb)
+
+        # Merge point: use PHI node to select the result
+        self._llvm.ir_builder.position_at_start(check_bb)
+        result_phi = self._llvm.ir_builder.phi(
+            self._llvm.INT8_TYPE.as_pointer(), "snprintf_result"
+        )
+        result_phi.add_incoming(empty_mem, error_bb)
+        result_phi.add_incoming(mem, success_bb)
+
+        return result_phi
 
     def _create_snprintf_decl(self) -> ir.Function:
         """Declare (or return) the external snprintf (varargs)."""
