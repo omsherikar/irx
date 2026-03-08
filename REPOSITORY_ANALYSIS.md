@@ -20,25 +20,29 @@ All `RegisterTable` methods in `src/irx/symbol_table.py` access
 `increase()`, `last`, `pop()`, `redefine()`, or `reset()` on a freshly created
 (or fully popped) `RegisterTable` raises an unguarded `IndexError`.
 
-**Affected code** (`src/irx/symbol_table.py`):
+**Affected code** (`src/irx/symbol_table.py`, class `RegisterTable`):
 
 ```python
-def increase(self, count: int = 1) -> int:
-    self.stack[-1] += count   # IndexError if stack is empty
-    return self.stack[-1]
+class RegisterTable:
+    def __init__(self) -> None:
+        self.stack: list[int] = []
 
-@property
-def last(self) -> int:
-    return self.stack[-1]     # IndexError if stack is empty
+    def increase(self, count: int = 1) -> int:
+        self.stack[-1] += count   # IndexError if stack is empty
+        return self.stack[-1]
 
-def pop(self) -> None:
-    self.stack.pop()          # IndexError if stack is empty
+    @property
+    def last(self) -> int:
+        return self.stack[-1]     # IndexError if stack is empty
 
-def redefine(self, count: int) -> None:
-    self.stack[-1] = count    # IndexError if stack is empty
+    def pop(self) -> None:
+        self.stack.pop()          # IndexError if stack is empty
 
-def reset(self) -> None:
-    self.stack[-1] = 0        # IndexError if stack is empty
+    def redefine(self, count: int) -> None:
+        self.stack[-1] = count    # IndexError if stack is empty
+
+    def reset(self) -> None:
+        self.stack[-1] = 0        # IndexError if stack is empty
 ```
 
 **Expected behavior**: Clear error message (e.g.,
@@ -182,9 +186,11 @@ issue is about the separate `LiteralString`/`LiteralUTF8String` code paths.
 **Summary**
 
 The `LiteralDateTime` visitor parses timezone offsets using
-`"-" in time_part[2:]`, which assumes `time_part` has at least 2 characters.
-A malformed timestamp with a very short time part (e.g., `"T1"` or `"T"`)
-will produce incorrect results or an `IndexError`.
+`"-" in time_part[2:]`. While Python's slice on a short string returns an empty
+string rather than raising `IndexError`, the logic silently produces incorrect
+results for malformed timestamps with very short time parts (e.g., `"T1"` or
+`"T"`). The `-` check on `time_part[2:]` would yield `False` even when the
+input is invalid, allowing bad data to pass through without validation.
 
 **Affected code** (`src/irx/builders/llvmliteir.py`):
 
@@ -476,7 +482,7 @@ In `.github/workflows/main.yaml`, macOS is commented out of the test matrix
 with the note: *"we need to enable the code generation for macos on ci"*. There
 is no tracking issue for this, which means it may be forgotten.
 
-**Note**: Upstream has #58 for MacOS CI support, but this fork should track
+**Note**: Upstream has #58 for macOS CI support, but this fork should track
 whether fork-specific changes affect macOS.
 
 ---
